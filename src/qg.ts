@@ -36,7 +36,7 @@ function facedowns(state: State, player: Player): Grid<Single<Card>> {
 export function* game(input: Input): GameGenerator<Output> {
     // form a circle of players (implicitly: in random order) and select a dealer (implicitly: random, as it is the 'first' player in the circle)
     const circle = new Ring();
-    yield* circle.initializeClockwise(input.players.items());
+    yield* circle.addClockwiseFrom(undefined, input.players.items());
 
     const draw_pile = new Pile<Card>();
     yield* draw_pile.addTop(input.deck.items());
@@ -64,10 +64,10 @@ export function* game(input: Input): GameGenerator<Output> {
         for (let i = 0; i < 3; i += 1) {
             const card = state.draw_pile.top() ?? error("not enough cards / too many players");
             const pile = new Single<Card>();
-            yield* pile.initialize([card]);
+            yield* pile.add([card]);
             piles.push(pile);
         }
-        facedowns(state, player).initialize(piles);
+        facedowns(state, player).add(piles);
     }
 
     // each player has a hand
@@ -98,10 +98,10 @@ export function* game(input: Input): GameGenerator<Output> {
             const piles: Pile<Card>[] = [];
             for (const cont of action.piles) {
                 const pile = new Pile<Card>();
-                yield* pile.initialize(cont);
+                yield* pile.add(cont);
                 piles.push(pile);
             }
-            faceups(state, sel_player).initialize(piles);
+            faceups(state, sel_player).add(piles);
         });
     }
 

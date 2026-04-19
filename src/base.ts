@@ -38,16 +38,15 @@ export class Area<T extends Owned> extends Owned {
         // actually yeah that's a good idea imo
         this.#hooks.push(() => cb(this));
     }
-    
-    * initialize(items: T[]): GameGenerator<void> {
-        if (this.items.length !== 0) error("can't initialize already full");
-        for (const item of items) this._own(item);
-        for (const item of items) this.items().push(item);
-        yield* this._updated();
-    }
 
     * shuffle(): GameGenerator<void> {
         jsShuffle(this.items());
+        yield* this._updated();
+    }
+    
+    * add(items: T[]): GameGenerator<void> {
+        for (const item of items) this._own(item);
+        for (const item of items) this.items().push(item);
         yield* this._updated();
     }
 }
@@ -59,11 +58,6 @@ export class Grid<T extends Owned> extends Area<T> {
 }
 export class Unordered<T extends Owned> extends Area<T> {
     constructor() {super()}
-    * add(items: T[]): GameGenerator<void> {
-        for (const item of items) this._own(item);
-        for (const item of items) this.items().push(item);
-        yield* this._updated();
-    }
 }
 export class Pile<T extends Owned> extends Area<T> {
     constructor() {super()}
@@ -80,15 +74,14 @@ export class Pile<T extends Owned> extends Area<T> {
         return this.items().slice(Math.max(0, this.items().length - n));
     }
     * addTop(items: T[]): GameGenerator<void> {
-        for (const item of items) this._own(item);
-        for (const item of items) this.items().push(item);
-        yield* this._updated();
+        yield* this.add(items);
     }
 }
 export class Ring<T extends Owned> extends Area<T> {
     constructor() {super()}
-    * initializeClockwise(items: T[]): GameGenerator<void> {
-        return yield* this.initialize(items);
+    * addClockwiseFrom(start: undefined, items: T[]): GameGenerator<void> {
+        if (start === undefined && this.items().length !== 0) throw new Error("ring not empy");
+        return yield* this.add(items);
     }
 
     offset(item: T, direction: "cw" | "ccw", offset: number): T {

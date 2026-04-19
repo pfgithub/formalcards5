@@ -47,10 +47,10 @@ function canPlay(state: State, card: Card): boolean {
 export function* game(input: Input): GameGenerator<Output> {
     // form a circle of players (implicitly: in random order) and select a dealer (implicitly: random, as it is the 'first' player in the circle)
     const circle = new Ring();
-    yield* circle.initializeClockwise(input.players.items());
+    yield* circle.addClockwiseFrom(undefined, input.players.items());
 
     const draw_pile = new Pile<Card>();
-    yield* draw_pile.initialize(input.deck.items());
+    yield* draw_pile.addTop(input.deck.items());
     
     const state: State = {
         draw_pile, // implicitly: in random order
