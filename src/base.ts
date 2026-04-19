@@ -39,6 +39,15 @@ export class Area<T extends Owned> extends Owned {
         this.#hooks.push(() => cb(this));
     }
 }
+export class Single<T extends Owned> extends Area<T> {
+    constructor() {super()}
+    * set(item: T): GameGenerator<void> {
+        if (this.items.length !== 0) error("can't initialize already full single");
+        this._own(item);
+        this.items().push(item);
+        yield* this._updated();
+    }
+}
 export class Unordered<T extends Owned> extends Area<T> {
     constructor() {super()}
     * add(item: T): GameGenerator<void> {
@@ -85,6 +94,12 @@ export class OrderedRing<T extends Owned> extends Ordered<T> {
     }
     clockwiseNext(item: T): T {
         return this.offset(item, "cw", 1);
+    }
+    clockwiseStartingWith(item: T): T[] {
+        const it = this.items();
+        const idx = this.items().indexOf(item);
+        if (idx === -1) unreachable("can't after; not in pile");
+        return [...it.slice(idx), ...it.slice(0, idx)];
     }
 }
 

@@ -4,9 +4,10 @@ import { effect, Effect, error, never, OrderedPile, OrderedRing, Unordered, unre
 type State = {
     draw_pile: OrderedPile<Card>,
     discard_pile: OrderedPile<Card>,
+    eight_suit?: CardSuit,
+
     circle: OrderedRing<Player>,
     turn: Player,
-    eight_suit?: CardSuit,
 
     hands: Map<Player, UnorderedSpread<Card>>,
 };
@@ -59,11 +60,11 @@ export function* game(input: Input): GameGenerator<Output> {
         hands: new Map(),
     };
 
-    // each player has a hand
-    for (const player of state.circle.items()) state.hands.set(player, new Unordered());
-
     // dealer (explicitly) shuffles the draw pile
     yield* state.draw_pile.shuffle();
+
+    // each player has a hand
+    for (const player of state.circle.items()) state.hands.set(player, new Unordered());
 
     // dealer deals seven cards to each player
     for (let i = 0; i < 7; i += 1) {
