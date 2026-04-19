@@ -1,4 +1,4 @@
-import { asc, Card, Effect, effect, error, Grid, jsAllUnique, never, Pile, Ring, Single, Unordered, unreachable, waitActionScreen, type CardValue, type GameGenerator, type Player } from "./base";
+import { asc, Card, Effect, effect, error, Grid, jsAllUnique, never, Pile, Ring, Single, Unordered, unreachable, waitActionScreen, type CardNumber, type GameGenerator, type Player } from "./base";
 
 // the state of the game
 type State = {
@@ -21,7 +21,7 @@ type Output = {
     winner: Player,
 };
 
-const order: CardValue[] = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
+const order: CardNumber[] = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
 
 function hand(state: State, player: Player): Unordered<Card> {
     return state.hands.get(player) ?? unreachable("every player already has a hand at this point");

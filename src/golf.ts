@@ -1,4 +1,4 @@
-import { asc, effect, Effect, error, Grid, never, Pile, Ring, Unordered, unreachable, waitActionScreen, type Card, type CardSuit, type CardValue as CardNumber, type GameGenerator, type Player } from "./base";
+import { asc, effect, Effect, error, Grid, never, Pile, Ring, Unordered, unreachable, waitActionScreen, type Card, type CardSuit, type CardNumber, type GameGenerator, type Player } from "./base";
 
 // the state of the game
 type State = {
