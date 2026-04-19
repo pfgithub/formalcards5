@@ -93,7 +93,6 @@ export function* game(input: Input): GameGenerator<Output> {
             sub.value.pile.add([card]);
         }
 
-        // TODO: checkEnd
         if (board(state, state.turn).items().every(item => {
             // TODO: check if the item is face up
             return false;
