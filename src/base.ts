@@ -55,6 +55,10 @@ export class Single<T extends Owned> extends Area<T> {
 }
 export class Grid<T extends Owned> extends Area<T> {
     constructor(public width: number, public height: number) {super()}
+
+    get(x: number, y: number): T | undefined {
+        return this.items()[y * this.width + x];
+    }
 }
 export class Unordered<T extends Owned> extends Area<T> {
     constructor() {super()}
