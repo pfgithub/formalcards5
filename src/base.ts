@@ -74,11 +74,19 @@ export class Pile<T extends Owned> extends Area<T> {
     top(): T | undefined {
         return this.items()[this.items().length - 1];
     }
+    bottom(): T | undefined {
+        return this.items()[0];
+    }
     topN(n: number): T[] {
         return this.items().slice(Math.max(0, this.items().length - n));
     }
     * addTop(items: T[]): GameGenerator<void> {
         yield* this.add(items);
+    }
+    * addBottom(items: T[]): GameGenerator<void> {
+        for (const item of items) this._own(item);
+        this.items().splice(0, 0, ...items); // I don't like to use rest parameters here because of the 16k problem but this is probably fine. and we're literally doing O(n²) on this._own anyway atm.
+        yield* this._updated();
     }
 }
 export class Ring<T extends Owned> extends Area<T> {

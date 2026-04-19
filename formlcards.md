@@ -9,3 +9,6 @@ once complete, where to go from here?
     - ie an action is never unfulfillable
   - can every player know what moves are legal for them based on their view of the game
   - after a player selects a move, can every other player determine if that move was legal based on their views of the game?
+
+printing:
+- it's interesting how you have to program differently (worse) to match speech better sometimes
