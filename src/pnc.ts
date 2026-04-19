@@ -13,6 +13,9 @@ type State = {
     leader?: Player,
     trump?: CardSuit,
 
+    us: Pile<Card>,
+    them: Pile<Card>,
+
     scores: {
         us: {total: number, meld?: number, play?: number},
         them: {total: number, meld?: number, play?: number},
