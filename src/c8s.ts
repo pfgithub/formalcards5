@@ -1,15 +1,15 @@
-import { effect, Effect, error, never, OrderedPile, OrderedRing, Unordered, unreachable, waitAction, type Card, type CardSuit, type GameGenerator, type Player, type UnorderedSpread } from "./base";
+import { effect, Effect, error, never, Pile, Ring, Unordered, unreachable, waitAction, type Card, type CardSuit, type GameGenerator, type Player } from "./base";
 
 // the state of the game
 type State = {
-    draw_pile: OrderedPile<Card>,
-    discard_pile: OrderedPile<Card>,
+    draw_pile: Pile<Card>,
+    discard_pile: Pile<Card>,
     eight_suit?: CardSuit,
 
-    circle: OrderedRing<Player>,
+    circle: Ring<Player>,
     turn: Player,
 
-    hands: Map<Player, UnorderedSpread<Card>>,
+    hands: Map<Player, Unordered<Card>>,
 };
 
 // an individual player's point of view (ie they can see their own cards but only the number of their opponent's cards)
@@ -24,8 +24,8 @@ type View = {
 
 // what you need to start the game
 type Input = {
-    deck: Unordered<Card>,
-    players: Unordered<Player>,
+    deck: Pile<Card>,
+    players: Ring<Player>,
 };
 // what you get out of the game
 type Output = {
@@ -46,15 +46,15 @@ function canPlay(state: State, card: Card): boolean {
 
 export function* game(input: Input): GameGenerator<Output> {
     // form a circle of players (implicitly: in random order) and select a dealer (implicitly: random, as it is the 'first' player in the circle)
-    const circle = new OrderedRing();
+    const circle = new Ring();
     yield* circle.initializeClockwise(input.players.items());
 
-    const draw_pile = new OrderedPile<Card>();
-    for (const item of input.deck.items()) yield* draw_pile.addTop(item);
+    const draw_pile = new Pile<Card>();
+    yield* draw_pile.initialize(input.deck.items());
     
     const state: State = {
         draw_pile, // implicitly: in random order
-        discard_pile: new OrderedPile(),
+        discard_pile: new Pile(),
         circle,
         turn: circle.random() ?? unreachable("need at least two players"),
         hands: new Map(),
@@ -70,12 +70,12 @@ export function* game(input: Input): GameGenerator<Output> {
     for (let i = 0; i < 7; i += 1) {
         for (const player of state.circle.items()) {
             const card = state.draw_pile.top() ?? error("not enough cards / too many players");
-            yield* hand(state, player).add(card);
+            yield* hand(state, player).add([card]);
         }
     }
 
     // dealer flips over the top card
-    yield* state.discard_pile.addTop(state.draw_pile.top() ?? error("not enough cards / too many players"))
+    yield* state.discard_pile.addTop([state.draw_pile.top() ?? error("not enough cards / too many players")])
 
     // start with left of the dealer
     state.turn = state.circle.clockwiseNext(state.turn);
@@ -97,7 +97,7 @@ export function* game(input: Input): GameGenerator<Output> {
                     play: (player: Player) => state.turn === player && canPlay(state, drawn_card),
                 });
                 if (sub.kind === "pass") {
-                    if (drawn_card) yield* hand(state, state.turn).add(drawn_card);
+                    if (drawn_card) yield* hand(state, state.turn).add([drawn_card]);
                 } else if (sub.kind === "play") {
                     yield* playCard(state, drawn_card);
                 } else never(sub);
@@ -116,7 +116,7 @@ export function* game(input: Input): GameGenerator<Output> {
 }
 function* playCard(state: State, card: Card): GameGenerator<void> {
     state.eight_suit = undefined; // this isn't a good way of explaining 8s even if it is accurate. maybe we can do better somehow.
-    state.draw_pile.addTop(card);
+    state.draw_pile.addTop([card]);
     if (hand(state, state.turn).empty()) yield* effect(new WinEffect(state.turn)); // you win when you play your last card
     if (card.number === "8") {
         const action = yield* waitAction({
@@ -132,8 +132,8 @@ function drawOrReshuffle(state: State): Card | undefined {
     if (res) return res;
     const preserve = state.discard_pile.top();
     if (preserve) state.discard_pile.remove(preserve);
-    for (const card of state.discard_pile.items()) state.draw_pile.addTop(card);
-    if (preserve) state.discard_pile.addTop(preserve);
+    for (const card of state.discard_pile.items()) state.draw_pile.addTop([card]);
+    if (preserve) state.discard_pile.addTop([preserve]);
     state.draw_pile.shuffle();
     return state.draw_pile.top();
 }

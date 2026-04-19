@@ -38,53 +38,57 @@ export class Area<T extends Owned> extends Owned {
         // actually yeah that's a good idea imo
         this.#hooks.push(() => cb(this));
     }
-}
-export class Single<T extends Owned> extends Area<T> {
-    constructor() {super()}
-    * set(item: T): GameGenerator<void> {
-        if (this.items.length !== 0) error("can't initialize already full single");
-        this._own(item);
-        this.items().push(item);
+    
+    * initialize(items: T[]): GameGenerator<void> {
+        if (this.items.length !== 0) error("can't initialize already full");
+        for (const item of items) this._own(item);
+        for (const item of items) this.items().push(item);
         yield* this._updated();
     }
-}
-export class Unordered<T extends Owned> extends Area<T> {
-    constructor() {super()}
-    * add(item: T): GameGenerator<void> {
-        this._own(item);
-        this.items().push(item);
-        yield* this._updated();
-    }
-}
-export class UnorderedSpread<T extends Owned> extends Unordered<T> {
-    constructor() {super()}
-}
-export class Ordered<T extends Owned> extends Area<T> {
-    constructor() {super()}
 
     * shuffle(): GameGenerator<void> {
         jsShuffle(this.items());
         yield* this._updated();
     }
 }
-export class OrderedPile<T extends Owned> extends Ordered<T> {
+export class Single<T extends Owned> extends Area<T> {
     constructor() {super()}
-    
-    top(): T | undefined {
-        return this.items()[0];
-    }
-    * addTop(item: T): GameGenerator<void> {
-        this._own(item);
-        this.items().push(item);
+}
+export class Grid<T extends Owned> extends Area<T> {
+    constructor(public width: number, public height: number) {super()}
+}
+export class Unordered<T extends Owned> extends Area<T> {
+    constructor() {super()}
+    * add(items: T[]): GameGenerator<void> {
+        for (const item of items) this._own(item);
+        for (const item of items) this.items().push(item);
         yield* this._updated();
     }
 }
-export class OrderedRing<T extends Owned> extends Ordered<T> {
+export class Pile<T extends Owned> extends Area<T> {
     constructor() {super()}
-    * initializeClockwise(items: T[]): GameGenerator<void> {
-        if (this.items.length !== 0) error("can't initialize already full ring");
+    
+    below(item: T): T | undefined {
+        const idx = this.items().indexOf(item);
+        if (idx === -1) unreachable("can't below; not in pile");
+        return this.items()[idx - 1];
+    }
+    top(): T | undefined {
+        return this.items()[this.items().length - 1];
+    }
+    topN(n: number): T[] {
+        return this.items().slice(Math.max(0, this.items().length - n));
+    }
+    * addTop(items: T[]): GameGenerator<void> {
+        for (const item of items) this._own(item);
         for (const item of items) this.items().push(item);
         yield* this._updated();
+    }
+}
+export class Ring<T extends Owned> extends Area<T> {
+    constructor() {super()}
+    * initializeClockwise(items: T[]): GameGenerator<void> {
+        return yield* this.initialize(items);
     }
 
     offset(item: T, direction: "cw" | "ccw", offset: number): T {
@@ -117,6 +121,56 @@ export type GameGenerator<T> = Generator<GameYieldArg, T, GameYieldRet>;
 export type FnArgData<Fn extends (player: Player, data: any) => unknown> = Fn extends (player: Player, a0: infer T) => unknown ? T : never;
 export type WaitActionRet<T extends Record<string, (player: Player, data: any) => boolean>> = {[key in keyof T]: {kind: key, player: Player, value: FnArgData<T[key]>}}[keyof T];
 export function* waitAction<T extends Record<string, (player: Player, data: any) => boolean>>(args: T): GameGenerator<WaitActionRet<NoInfer<T>>> {
+    error("todo");
+}
+
+export type ActionScreen<T> = {_hint: T, value:
+    | {kind: "choose", entries: Record<string, ActionScreen<unknown>>}
+    | {kind: "record", entries: Record<string, ActionScreen<unknown>>}
+    | {kind: "list", entries: ActionScreen<unknown>}
+    | {kind: "owned", of?: Owned[]}
+    | {kind: "actor", of?: Player[]}
+};
+export type Constructor<T> = {new(...args: any[]): T};
+export const asc = {
+    choose<Entries extends Record<string, ActionScreen<unknown>>>(entries: Entries): ActionScreen<{[key in keyof NoInfer<Entries>]: {key: key, value: NoInfer<Entries>[key]["_hint"]}}[keyof NoInfer<Entries>]> {
+        return {
+            _hint: 0 as any,
+            value: {kind: "choose", entries},
+        };
+    },
+    record<Entries extends Record<string, ActionScreen<unknown>>>(entries: Entries): ActionScreen<{[key in keyof NoInfer<Entries>]: NoInfer<Entries>[key]["_hint"]}> {
+        return {
+            _hint: 0 as any,
+            value: {kind: "record", entries},
+        };
+    },
+    list<Entry>(entries: ActionScreen<Entry>): ActionScreen<Entry[]> {
+        return {
+            _hint: 0 as any,
+            value: {kind: "list", entries},
+        };
+    },
+    owned<O extends Owned>(of: O[]): ActionScreen<NoInfer<O>> {
+        return {
+            _hint: 0 as any,
+            value: {kind: "owned", of},
+        };
+    },
+    actor(of?: Player[]): ActionScreen<Player> {
+        return {
+            _hint: 0 as any,
+            value: {kind: "actor", of},
+        };
+    },
+
+};
+
+export function jsAllUnique<T>(items: T[]): boolean {
+    return new Set(items).size === items.length;
+}
+
+export function* waitActionScreen<T>(screen: ActionScreen<T>, validate?: (res: NoInfer<T>) => GameGenerator<undefined | "fail">): GameGenerator<NoInfer<T>> {
     error("todo");
 }
 

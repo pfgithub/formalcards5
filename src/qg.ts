@@ -1,21 +1,21 @@
-import { effect, Effect, error, never, OrderedPile, OrderedRing, Single, Unordered, unreachable, waitAction, type Card, type CardSuit, type CardValue, type GameGenerator, type Player, type UnorderedSpread } from "./base";
+import { asc, error, Grid, Pile, Ring, Single, Unordered, unreachable, waitAction, waitActionScreen, Card, type CardValue, type GameGenerator, type Player, jsAllUnique, Effect, effect } from "./base";
 
 // the state of the game
 type State = {
-    draw_pile: OrderedPile<Card>,
-    discard_pile: OrderedPile<Card>,
+    draw_pile: Pile<Card>,
+    discard_pile: Pile<Card>,
     trash_pile: Unordered<Card>,
 
-    circle: OrderedRing<Player>,
+    circle: Ring<Player>,
     turn: Player,
 
-    hands: Map<Player, UnorderedSpread<Card>>,
-    faceups: Map<Player, Unordered<Card>[]>,
-    facedowns: Map<Player, Single<Card>[]>,
+    hands: Map<Player, Unordered<Card>>,
+    faceups: Map<Player, Grid<Pile<Card>>>,
+    facedowns: Map<Player, Grid<Single<Card>>>,
 };
 type Input = {
-    deck: Unordered<Card>,
-    players: Unordered<Player>,
+    deck: Pile<Card>,
+    players: Ring<Player>,
 };
 type Output = {
     winner: Player,
@@ -23,27 +23,27 @@ type Output = {
 
 const order: CardValue[] = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
 
-function hand(state: State, player: Player): UnorderedSpread<Card> {
+function hand(state: State, player: Player): Unordered<Card> {
     return state.hands.get(player) ?? unreachable("every player already has a hand at this point");
 }
-function faceups(state: State, player: Player): Unordered<Card>[] {
+function faceups(state: State, player: Player): Grid<Pile<Card>> {
     return state.faceups.get(player) ?? unreachable("every player already has faceups at this point");
 }
-function facedowns(state: State, player: Player): Single<Card>[] {
+function facedowns(state: State, player: Player): Grid<Single<Card>> {
     return state.facedowns.get(player) ?? unreachable("every player already has facedowns at this point");
 }
 
 export function* game(input: Input): GameGenerator<Output> {
     // form a circle of players (implicitly: in random order) and select a dealer (implicitly: random, as it is the 'first' player in the circle)
-    const circle = new OrderedRing();
+    const circle = new Ring();
     yield* circle.initializeClockwise(input.players.items());
 
-    const draw_pile = new OrderedPile<Card>();
-    for (const item of input.deck.items()) yield* draw_pile.addTop(item);
+    const draw_pile = new Pile<Card>();
+    yield* draw_pile.addTop(input.deck.items());
     
     const state: State = {
         draw_pile, // implicitly: in random order
-        discard_pile: new OrderedPile(),
+        discard_pile: new Pile(),
         trash_pile: new Unordered(),
 
         circle,
@@ -59,23 +59,24 @@ export function* game(input: Input): GameGenerator<Output> {
 
     // dealer deals facedowns to each player
     for (const player of state.circle.items()) {
-        state.facedowns.set(player, []);
+        state.facedowns.set(player, new Grid(3, 1));
+        const piles: Single<Card>[] = [];
         for (let i = 0; i < 3; i += 1) {
             const card = state.draw_pile.top() ?? error("not enough cards / too many players");
             const pile = new Single<Card>();
-            yield* pile.set(card);
-            facedowns(state, player).push(pile);
+            yield* pile.initialize([card]);
+            piles.push(pile);
         }
+        facedowns(state, player).initialize(piles);
     }
 
     // each player has a hand
     for (const player of state.circle.items()) state.hands.set(player, new Unordered());
 
     // dealer deals six cards to each player
-    for (let i = 0; i < 6; i += 1) {
+    for (let i = 0; i < 2; i += 1) {
         for (const player of state.circle.items()) {
-            const card = state.draw_pile.top() ?? error("not enough cards / too many players");
-            yield* hand(state, player).add(card);
+            yield* hand(state, player).add(state.draw_pile.topN(3));
         }
     }
 
@@ -89,14 +90,119 @@ export function* game(input: Input): GameGenerator<Output> {
                 player === sel_player &&
                 data.piles.length === 3 && // three piles
                 data.piles.every(p => (
-                    p.length >= 1 && // at least one card per pile
                     p.every(c => hand(state, player).has(c)) && // all the cards came from your hand
-                    p.every((c, i, a) => c.number === a[0]!.number) // multiple cards in one pile? all are the same
+                    checkGroupMultiple(state, p)
                 )) &&
-                data.piles.flat(2).length === new Set(data.piles.flat(2)).size // no duplicate cards selected
+                jsAllUnique(data.piles.flat(2)) // no duplicate cards selected
             ),
         });
 
-        // TODO: continue impl
+        // place the three piles face up in front of you
+        state.faceups.set(sel_player, new Grid(3, 1));
+        const piles: Pile<Card>[] = [];
+        for (const cont of action.value.piles) {
+            const pile = new Pile<Card>();
+            yield* pile.initialize(cont);
+            piles.push(pile);
+        }
+        faceups(state, sel_player).initialize(piles);
     }
+
+    // begin play
+    try {while (true) {
+        // first player's turn
+        turn(state);
+        
+        // play advances left
+        state.turn = state.circle.clockwiseNext(state.turn);
+    }} catch(e) {
+        if (e instanceof WinEffect) {
+            return {
+                winner: e.winner,
+            };
+        } else throw e;
+    }
+}
+
+function* turn(state: State): GameGenerator<void> {
+    yield* waitActionScreen(asc.choose({
+        play_cards: asc.record({actor: asc.actor([state.turn]), cards: asc.list(asc.owned(hand(state, state.turn).items()))}),
+        play_faceup: asc.record({actor: asc.actor([state.turn]), pile: asc.owned(faceups(state, state.turn).items().filter(t => !t.empty()))}),
+        play_facedown: asc.record({actor: asc.actor([state.turn]), pile: asc.owned(facedowns(state, state.turn).items().filter(t => !t.empty()))}),
+        pick_up_pile: asc.record({}),
+    }), function* (action): GameGenerator<"fail" | undefined> {
+        if (action.key === "play_cards") {
+            if (!checkGroupMultiple(state, action.value.cards)) return "fail";
+            if (!canPlay(state, action.value.cards[0] ?? unreachable("just checked"))) return "fail";
+            yield* playCards(state, action.value.cards);
+        } else if (action.key === "play_faceup") {
+            if (!hand(state, state.turn).empty()) return "fail";
+            if (!checkGroupMultiple(state, action.value.pile.items())) return "fail";
+            if (!canPlay(state, action.value.pile.items()[0] ?? unreachable("just checked"))) return "fail";
+            yield* playCards(state, action.value.pile.items());
+        } else if (action.key === "play_facedown") {
+            if (!hand(state, state.turn).empty()) return "fail";
+            if (!faceups(state, state.turn).items().every(it => it.empty())) return "fail";
+            if (!canPlay(state, action.value.pile.items()[0] ?? unreachable("just checked"))) {
+                yield* pickUpPile(state);
+            } else {
+                yield* playCards(state, action.value.pile.items());
+            }
+        } else if (action.key === "pick_up_pile") {
+            yield* pickUpPile(state);
+        }
+    });
+}
+
+function discardValue(state: State, card: Card | undefined): number | undefined {
+    if (!card) return undefined;
+    if (card.number === "2") return undefined;
+    if (card.number === "3") return discardValue(state, state.draw_pile.below(card));
+    return order.indexOf(card.number);
+}
+function canPlay(state: State, card: Card): boolean {
+    if (card.number === "2" || card.number === "3" || card.number === "10") return true;
+    const discard_value = discardValue(state, state.discard_pile.top());
+    return order.indexOf(card.number) >= (discard_value ?? 0);
+}
+
+function* playCards(state: State, cards: Card[]): GameGenerator<void> {
+    const last = cards[cards.length - 1] ?? unreachable("unvalidated pile");
+    state.discard_pile.addTop(cards);
+    yield* checkWin(state);
+    if (last.number === "10") {
+        yield* trashDiscard(state);
+    } else {
+        const four_last = state.draw_pile.topN(4);
+        if (checkGroupMultiple(state, four_last)) {
+            yield* trashDiscard(state);
+        }
+    }
+}
+
+function* checkWin(state: State): GameGenerator<void> {
+    if (hand(state, state.turn).empty()
+        && faceups(state, state.turn).items().every(it => it.empty())
+        && facedowns(state, state.turn).items().every(it => it.empty())
+    ) yield* effect(new WinEffect(state.turn));
+}
+
+function* pickUpPile(state: State): GameGenerator<void> {
+    yield* hand(state, state.turn).add(state.discard_pile.items());
+    yield* turn(state); // you get to go again
+}
+
+function* trashDiscard(state: State): GameGenerator<void> {
+    yield* state.trash_pile.add(state.discard_pile.items());
+    yield* turn(state); // you go again
+}
+
+function checkGroupMultiple(state: State, cards: Card[]): boolean {
+    return cards.length >= 1 && // at least one card
+        cards.every((c, i, a) => c.number === a[0]!.number) && // all same number
+        jsAllUnique(cards); // all unique
+}
+
+class WinEffect extends Effect<never> {
+    constructor(public winner: Player) {super()}
 }
