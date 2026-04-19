@@ -1,4 +1,4 @@
-import { asc, error, Grid, Pile, Ring, Single, Unordered, unreachable, waitAction, waitActionScreen, Card, type CardValue, type GameGenerator, type Player, jsAllUnique, Effect, effect } from "./base";
+import { asc, Card, Effect, effect, error, Grid, jsAllUnique, never, Pile, Ring, Single, Unordered, unreachable, waitActionScreen, type CardValue, type GameGenerator, type Player } from "./base";
 
 // the state of the game
 type State = {
@@ -85,27 +85,24 @@ export function* game(input: Input): GameGenerator<Output> {
     
     // each player selects three piles of cards to be their faceups. order here will be defined as clockwise.
     for (const sel_player of state.circle.clockwiseStartingWith(state.turn)) {
-        const action = yield* waitAction({
-            select_piles: (player: Player, data: {piles: Card[][]}) => (
-                player === sel_player &&
-                data.piles.length === 3 && // three piles
-                data.piles.every(p => (
-                    p.every(c => hand(state, player).has(c)) && // all the cards came from your hand
-                    checkGroupMultiple(state, p)
-                )) &&
-                jsAllUnique(data.piles.flat(2)) // no duplicate cards selected
-            ),
+        yield* waitActionScreen(asc.record({
+            // alternatively, we could allow anyone to announce in any order. but that would make
+            // the game simultaneous (not quite! even worse) which theoretically could affect optimal play.
+            actor: asc.actor([state.turn]),
+            piles: asc.list(asc.list(asc.enum(hand(state, state.turn).items()), {min: 1}), {exact: 3}),
+        }), function* (action) {
+            if (!jsAllUnique(action.piles.flat(2))) return "fail"; // no duplicate cards allowed
+            
+            // place the three piles face up in front of you
+            state.faceups.set(sel_player, new Grid(3, 1));
+            const piles: Pile<Card>[] = [];
+            for (const cont of action.piles) {
+                const pile = new Pile<Card>();
+                yield* pile.initialize(cont);
+                piles.push(pile);
+            }
+            faceups(state, sel_player).initialize(piles);
         });
-
-        // place the three piles face up in front of you
-        state.faceups.set(sel_player, new Grid(3, 1));
-        const piles: Pile<Card>[] = [];
-        for (const cont of action.value.piles) {
-            const pile = new Pile<Card>();
-            yield* pile.initialize(cont);
-            piles.push(pile);
-        }
-        faceups(state, sel_player).initialize(piles);
     }
 
     // begin play
@@ -126,9 +123,9 @@ export function* game(input: Input): GameGenerator<Output> {
 
 function* turn(state: State): GameGenerator<void> {
     yield* waitActionScreen(asc.choose({
-        play_cards: asc.record({actor: asc.actor([state.turn]), cards: asc.list(asc.owned(hand(state, state.turn).items()))}),
-        play_faceup: asc.record({actor: asc.actor([state.turn]), pile: asc.owned(faceups(state, state.turn).items().filter(t => !t.empty()))}),
-        play_facedown: asc.record({actor: asc.actor([state.turn]), pile: asc.owned(facedowns(state, state.turn).items().filter(t => !t.empty()))}),
+        play_cards: asc.record({actor: asc.actor([state.turn]), cards: asc.list(asc.enum(hand(state, state.turn).items()))}),
+        play_faceup: asc.record({actor: asc.actor([state.turn]), pile: asc.enum(faceups(state, state.turn).items().filter(t => !t.empty()))}),
+        play_facedown: asc.record({actor: asc.actor([state.turn]), pile: asc.enum(facedowns(state, state.turn).items().filter(t => !t.empty()))}),
         pick_up_pile: asc.record({}),
     }), function* (action): GameGenerator<"fail" | undefined> {
         if (action.key === "play_cards") {
@@ -150,7 +147,7 @@ function* turn(state: State): GameGenerator<void> {
             }
         } else if (action.key === "pick_up_pile") {
             yield* pickUpPile(state);
-        }
+        } else never(action);
     });
 }
 

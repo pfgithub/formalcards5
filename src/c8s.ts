@@ -1,4 +1,4 @@
-import { effect, Effect, error, never, Pile, Ring, Unordered, unreachable, waitAction, type Card, type CardSuit, type GameGenerator, type Player } from "./base";
+import { asc, effect, Effect, error, never, Pile, Ring, Unordered, unreachable, waitActionScreen, type Card, type CardSuit, type GameGenerator, type Player } from "./base";
 
 // the state of the game
 type State = {
@@ -82,25 +82,28 @@ export function* game(input: Input): GameGenerator<Output> {
     
     try {while (true) {
         // the current player chooses whether to play or draw
-        const action = yield* waitAction({
-            draw: (player: Player) => state.turn === player,
-            play: (player: Player, data: {card: Card}) => state.turn === player && hand(state, state.turn).has(data.card) && canPlay(state, data.card),
+        const action = yield* waitActionScreen(asc.choose({
+            draw: asc.record({player: asc.actor([state.turn])}),
+            play: asc.record({player: asc.actor([state.turn]), card: asc.enum(hand(state, state.turn).items())}),
+        }), function* (action) {
+            if (action.key === "play") if (!canPlay(state, action.value.card)) return "fail";
+            return action;
         });
-        if (action.kind === "play") {
+        if (action.key === "play") {
             yield* playCard(state, action.value.card);
-        } else if (action.kind === "draw") {
+        } else if (action.key === "draw") {
             const drawn_card = drawOrReshuffle(state);
             if (drawn_card) {
                 // the current player may choose to immediately play the drawn card
-                const sub = yield* waitAction({
-                    pass: (player: Player) => state.turn === player,
-                    play: (player: Player) => state.turn === player && canPlay(state, drawn_card),
-                });
-                if (sub.kind === "pass") {
+                const action = yield* waitActionScreen(asc.choose({
+                    pass: asc.record({player: asc.actor([state.turn])}),
+                    play: asc.record({player: asc.actor(canPlay(state, drawn_card) ? [state.turn] : [])}),
+                }), function* (action) { return action });
+                if (action.key === "pass") {
                     if (drawn_card) yield* hand(state, state.turn).add([drawn_card]);
-                } else if (sub.kind === "play") {
+                } else if (action.key === "play") {
                     yield* playCard(state, drawn_card);
-                } else never(sub);
+                } else never(action);
             }
         } else never(action);
 
@@ -119,10 +122,11 @@ function* playCard(state: State, card: Card): GameGenerator<void> {
     state.draw_pile.addTop([card]);
     if (hand(state, state.turn).empty()) yield* effect(new WinEffect(state.turn)); // you win when you play your last card
     if (card.number === "8") {
-        const action = yield* waitAction({
-            suit: (player: Player, data: {suit: CardSuit}) => state.turn === player,
-        });
-        state.eight_suit = action.value.suit;
+        const action = yield* waitActionScreen(asc.record({
+            actor: asc.actor([state.turn]),
+            suit: asc.enum(["D", "H", "C", "S"] as const),
+        }), function* (action) {return action});
+        state.eight_suit = action.suit;
     }
 }
 

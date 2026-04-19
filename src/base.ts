@@ -110,6 +110,7 @@ export class Ring<T extends Owned> extends Area<T> {
 export type CardSuit = "D" | "H" | "C" | "S";
 export type CardValue = "A" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "10" | "J" | "Q" | "K";
 export class Card extends Owned {
+    // TODO facing: Player | "table", front_face: "face" | "back"
     constructor(public suit: CardSuit, public number: CardValue) {super()}
 }
 export class Player extends Owned {}
@@ -119,17 +120,13 @@ export class Player extends Owned {}
 export type GameGenerator<T> = Generator<GameYieldArg, T, GameYieldRet>;
 
 export type FnArgData<Fn extends (player: Player, data: any) => unknown> = Fn extends (player: Player, a0: infer T) => unknown ? T : never;
-export type WaitActionRet<T extends Record<string, (player: Player, data: any) => boolean>> = {[key in keyof T]: {kind: key, player: Player, value: FnArgData<T[key]>}}[keyof T];
-export function* waitAction<T extends Record<string, (player: Player, data: any) => boolean>>(args: T): GameGenerator<WaitActionRet<NoInfer<T>>> {
-    error("todo");
-}
 
 export type ActionScreen<T> = {_hint: T, value:
     | {kind: "choose", entries: Record<string, ActionScreen<unknown>>}
     | {kind: "record", entries: Record<string, ActionScreen<unknown>>}
-    | {kind: "list", entries: ActionScreen<unknown>}
-    | {kind: "owned", of?: Owned[]}
+    | {kind: "list", entries: ActionScreen<unknown>, min?: number, exact?: number}
     | {kind: "actor", of?: Player[]}
+    | {kind: "enum", of: unknown[]}
 };
 export type Constructor<T> = {new(...args: any[]): T};
 export const asc = {
@@ -145,16 +142,10 @@ export const asc = {
             value: {kind: "record", entries},
         };
     },
-    list<Entry>(entries: ActionScreen<Entry>): ActionScreen<Entry[]> {
+    list<Entry>(entries: ActionScreen<Entry>, filters?: {min?: number, exact?: number}): ActionScreen<Entry[]> {
         return {
             _hint: 0 as any,
-            value: {kind: "list", entries},
-        };
-    },
-    owned<O extends Owned>(of: O[]): ActionScreen<NoInfer<O>> {
-        return {
-            _hint: 0 as any,
-            value: {kind: "owned", of},
+            value: {kind: "list", entries, min: filters?.min, exact: filters?.exact},
         };
     },
     actor(of?: Player[]): ActionScreen<Player> {
@@ -163,14 +154,19 @@ export const asc = {
             value: {kind: "actor", of},
         };
     },
-
+    enum<T>(of: T[]): ActionScreen<T> {
+        return {
+            _hint: 0 as any,
+            value: {kind: "enum", of},
+        };
+    }
 };
 
 export function jsAllUnique<T>(items: T[]): boolean {
     return new Set(items).size === items.length;
 }
 
-export function* waitActionScreen<T>(screen: ActionScreen<T>, validate?: (res: NoInfer<T>) => GameGenerator<undefined | "fail">): GameGenerator<NoInfer<T>> {
+export function* waitActionScreen<T, U>(screen: ActionScreen<T>, validate?: (res: NoInfer<T>) => GameGenerator<U | "fail">): GameGenerator<NoInfer<U>> {
     error("todo");
 }
 
