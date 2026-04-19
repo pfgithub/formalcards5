@@ -111,6 +111,7 @@ export type CardSuit = "D" | "H" | "C" | "S";
 export type CardValue = "A" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "10" | "J" | "Q" | "K";
 export class Card extends Owned {
     // TODO facing: Player | "table", front_face: "face" | "back"
+    // ^ that's not really accurate. it's more like 'who is allowed to look at which faces of these cards'
     constructor(public suit: CardSuit, public number: CardValue) {super()}
 }
 export class Player extends Owned {}
