@@ -94,8 +94,7 @@ export function* game(input: Input): GameGenerator<Output> {
         }
 
         if (board(state, state.turn).items().every(item => {
-            // TODO: check if the item is face up
-            return false;
+            error("TODO; check if the item is face up");
         })) {
             state.end_at = state.turn;
         }
