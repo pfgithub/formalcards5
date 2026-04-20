@@ -6,6 +6,136 @@ fn main() {
     println!("Hello, world!");
 }
 
+macro_rules! action_screen {
+    // @choose
+    (@typedef @choose $name:ident { $(
+        $key:ident ( $($value:tt)* ),
+    )* }) => {
+        $(action_screen!(@typedef $($value)*);)*
+        enum $name {
+            $(
+                $key (action_screen!(@typename $($value)*)),
+            )*
+        }
+    };
+    (@typename @choose $name:ident { $(
+        $key:ident ( $($value:tt)* ),
+    )* }) => {$name};
+    (@screen @choose $name:ident { $(
+        $key:ident ( $($value:tt)* ),
+    )* }) => {
+        ActionScreen::Choose(vec![
+            $(
+                (
+                    stringify!($key),
+                    action_screen!(@screen $($value)*)
+                ),
+            )*
+        ])
+    };
+    (@resolve ($resolve:expr) @choose $name:ident { $(
+        $key:ident ( $($value:tt)* ),
+    )* }) => {
+        match $resolve {
+            $(
+                ActionScreenResult::Choose((
+                    stringify!($key),
+                    value
+                )) => $name::$key(
+                    action_screen!(@resolve (value.as_ref()) $($value)*)
+                ),
+            )*
+            // ActionScreenResult::Choose()
+            _ => panic!("bad action screen result"),
+        }
+    };
+
+    // @record
+    // note that for record it requires parenthesis around the value.
+    // ideally it wouldn't, but we would need a tt that consumes everything except ','.
+    // you can do that with tt munching but that looks like it sucks.
+    (@typedef @record $name:ident { $(
+        $key:ident: ($($value:tt)*),
+    )* }) => {
+        $(action_screen!(@typedef $($value)*);)*
+        struct $name {
+            $(
+                $key: action_screen!(@typename $($value)*),
+            )*
+        }
+    };
+    (@typename @record $name:ident { $(
+        $key:ident: ($($value:tt)*),
+    )* }) => {$name};
+    (@screen @record $name:ident { $(
+        $key:ident: ($($value:tt)*),
+    )* }) => {
+        ActionScreen::Record(vec![
+            $(
+                (
+                    stringify!($key),
+                    action_screen!(@screen $($value)*)
+                ),
+            )*
+        ])
+    };
+    (@resolve ($resolve:expr) @record $name:ident { $(
+        $key:ident: ($($value:tt)*),
+    )* }) => {
+        match $resolve {
+            ActionScreenResult::Record(map) => $name {
+                $(
+                    $key: action_screen!(@resolve (
+                        map.get(stringify!($key)).unwrap()
+                    ) $($value)*),
+                )*
+            },
+            _ => panic!("expected record"),
+        }
+    };
+
+    // @actor
+    (@typedef @actor $expr:expr) => {};
+    (@typename @actor $expr:expr) => {Player};
+    (@screen @actor $expr:expr) => {
+        ActionScreen::Actor($expr)
+    };
+    (@resolve ($resolve:expr) @actor $expr:expr) => {
+        match $resolve {
+            ActionScreenResult::Actor(actor) => *actor,
+            _ => panic!("expected actor"),
+        }
+    };
+
+    // @enum
+    (@typedef @enum <$typeclass:path> $expr:expr) => {};
+    (@typename @enum <$typeclass:path> $expr:expr) => {$typeclass};
+    (@screen @enum <$typeclass:path> $expr:expr) => {
+        ActionScreen::Enum(($expr).iter().map(|item| Box::new(*item) as Box<dyn Any>).collect())
+    };
+    (@resolve ($resolve:expr) @enum <$typeclass:path> $expr:expr) => {
+        match $resolve {
+            ActionScreenResult::Enum(x) => *x.downcast_ref::<$typeclass>().expect("unreachable"),
+            _ => panic!("expected enum"),
+        }
+    };
+
+    // @never
+    (@typedef @never) => {};
+    (@typename @never) => {()};
+    (@screen @never) => {ActionScreen::Enum(vec![])};
+    (@resolve ($resolve:expr) @never) => {panic!("unreachable")};
+}
+
+macro_rules! wait_action_screen {
+    (let $name:ident = $($rest:tt)*) => {
+        let action = action_screen!(@screen $($rest)*);
+        let raw = wait_action_screen(action);
+        action_screen!(@typedef $($rest)*);
+        let $name = action_screen!(@resolve (raw) $($rest)*);
+    };
+}
+
 fn game(input: &mut Input) -> Result<Output, Error> {
     let mut circle = Ring::<Player>::new();
     circle.add(input.players.take_all());
@@ -44,44 +174,24 @@ fn game(input: &mut Input) -> Result<Output, Error> {
     state.turn = *state.circle.clockwise_after(state.turn).first().expect(">=1 player");
 
     loop {
-        let action = wait_action_screen(ActionScreen::Choose(vec![
-            ("pass", ActionScreen::Record(vec![
-                ("player", ActionScreen::Actor(Some(vec![state.turn]))),
-            ])),
-            ("play", ActionScreen::Record(vec![
-                ("player", ActionScreen::Actor(Some(vec![state.turn]))),
-                ("card", ActionScreen::Enum(
-                    state.hand(state.turn).contents.iter().map(|item| Box::new(*item) as Box<dyn Any>).collect()
-                )),
-            ])),
-        ]));
-        match action {
-            ActionScreenResult::Choose(("pass", x)) => match x.as_ref() {
-                ActionScreenResult::Record(map) => {
-                    let player = match map.get("player") {
-                        Some(ActionScreenResult::Actor(x)) => x,
-                        _ => panic!("unreachable"),
-                    };
 
-                    panic!("TODO: impl pass");
-                },
-                _ => panic!("unreachable"),   
+        wait_action_screen!(let action = @choose Action {
+            Pass(@record ActionPass {
+                actor: (@actor Some(vec![state.turn])),
+            }),
+            Play(@record ActionPlay {
+                actor: (@actor Some(vec![state.turn])),
+                card: (@enum<Card> state.hand(state.turn).contents),
+            }),
+        });
+
+        match action {
+            Action::Pass(_pass) => {
+                panic!("TODO: impl pass");
             },
-            ActionScreenResult::Choose(("play", x)) => match x.as_ref() {
-                ActionScreenResult::Record(map) => {
-                    let player = match map.get("player") {
-                        Some(ActionScreenResult::Actor(x)) => x,
-                        _ => panic!("unreachable"),
-                    };
-                    let card = match map.get("card") {
-                        Some(ActionScreenResult::Enum(x)) => *x.downcast_ref::<Card>().expect("unreachable"),
-                        _ => panic!("unreachable"),
-                    };
-                    play_card(&mut state, card);
-                },
-                _ => panic!("unreachable"),   
+            Action::Play(play) => {
+                play_card(&mut state, play.card);
             },
-            _ => panic!("unreachable"),
         }
     }
 }
