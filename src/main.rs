@@ -1,4 +1,4 @@
-use std::{collections::HashMap, vec::Vec};
+use std::{collections::HashMap, vec::Vec, any::Any};
 
 use rand::seq::SliceRandom;
 
@@ -44,8 +44,66 @@ fn game(input: &mut Input) -> Result<Output, Error> {
     state.turn = *state.circle.clockwise_after(state.turn).first().expect(">=1 player");
 
     loop {
-        // ok waitActionScreen is interesting. how do you impl that.
+        let action = wait_action_screen(ActionScreen::Choose(vec![
+            ("pass", ActionScreen::Record(vec![
+                ("player", ActionScreen::Actor(Some(vec![state.turn]))),
+            ])),
+            ("play", ActionScreen::Record(vec![
+                ("player", ActionScreen::Actor(Some(vec![state.turn]))),
+                ("card", ActionScreen::Enum(
+                    state.hand(state.turn).contents.iter().map(|item| Box::new(*item) as Box<dyn Any>).collect()
+                )),
+            ])),
+        ]));
+        match action {
+            ActionScreenResult::Choose(("pass", x)) => match x.as_ref() {
+                ActionScreenResult::Record(map) => {
+                    let player = match map.get("player") {
+                        Some(ActionScreenResult::Actor(x)) => x,
+                        _ => panic!("unreachable"),
+                    };
+
+                    panic!("TODO: impl pass");
+                },
+                _ => panic!("unreachable"),   
+            },
+            ActionScreenResult::Choose(("play", x)) => match x.as_ref() {
+                ActionScreenResult::Record(map) => {
+                    let player = match map.get("player") {
+                        Some(ActionScreenResult::Actor(x)) => x,
+                        _ => panic!("unreachable"),
+                    };
+                    let card = match map.get("card") {
+                        Some(ActionScreenResult::Enum(x)) => *x.downcast_ref::<Card>().expect("unreachable"),
+                        _ => panic!("unreachable"),
+                    };
+                    play_card(&mut state, card);
+                },
+                _ => panic!("unreachable"),   
+            },
+            _ => panic!("unreachable"),
+        }
     }
+}
+fn play_card(state: &mut State, card: Card) -> () {
+}
+
+enum ActionScreen {
+    Choose(Vec<(&'static str, ActionScreen)>),
+    Record(Vec<(&'static str, ActionScreen)>),
+    Enum(Vec<Box<dyn Any>>),
+    Actor(Option<Vec<Player>>),
+}
+enum ActionScreenResult {
+    Choose((&'static str, Box<ActionScreenResult>)),
+    Record(HashMap<&'static str, ActionScreenResult>),
+    Enum(Box<dyn Any>),
+    Actor(Player),
+}
+// wonder if we can make it typesafe somehow like the js one
+// or better given that we can use numbers instead of string keys
+fn wait_action_screen(screen: ActionScreen) -> ActionScreenResult {
+    panic!("todo");
 }
 
 enum Error {
