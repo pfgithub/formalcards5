@@ -2,6 +2,8 @@ use std::{collections::HashMap, vec::Vec, any::Any};
 
 use rand::seq::SliceRandom;
 
+use serde::{Serialize, Deserialize};
+
 fn main() {
     println!("Hello, world!");
     let mut input = Input {
@@ -59,10 +61,7 @@ macro_rules! action_screen {
     )* }) => {
         ActionScreen::Choose(vec![
             $(
-                (
-                    stringify!($key),
-                    action_screen!(@screen $($value)*)
-                ),
+                action_screen!(@screen $($value)*),
             )*
         ])
     };
@@ -70,14 +69,20 @@ macro_rules! action_screen {
         $key:ident ( $($value:tt)* ),
     )* }) => {
         match $resolve {
-            $(
-                ActionScreenResult::Choose((
-                    stringify!($key),
-                    value
-                )) => $name::$key(
-                    action_screen!(@resolve (value.as_ref()) $($value)*)
-                ),
-            )*
+            ActionScreenResult::Choose((
+                index,
+                value
+            )) => 'choose: {
+                let i: usize = 0;
+                $(
+                    if (*index == i) {
+                        break 'choose $name::$key(
+                            action_screen!(@resolve (value.as_ref()) $($value)*)
+                        );
+                    }
+                )*
+                panic!("bad action screen result");
+            },
             // ActionScreenResult::Choose()
             _ => panic!("bad action screen result"),
         }
@@ -103,26 +108,23 @@ macro_rules! action_screen {
     (@screen @record $name:ident { $(
         $key:ident: ($($value:tt)*),
     )* }) => {
-        ActionScreen::Record(vec![
-            $(
-                (
-                    stringify!($key),
-                    action_screen!(@screen $($value)*)
-                ),
+        ActionScreen::Record({
+            vec![$(
+                action_screen!(@screen $($value)*),
             )*
-        ])
+        ]})
     };
     (@resolve ($resolve:expr) @record $name:ident { $(
         $key:ident: ($($value:tt)*),
     )* }) => {
         match $resolve {
-            ActionScreenResult::Record(map) => $name {
+            ActionScreenResult::Record(list) => {let mut i: usize = 0; $name {
                 $(
                     $key: action_screen!(@resolve (
-                        map.get(stringify!($key)).unwrap()
+                        &list[{let tmp = i; i += 1; _ = i; tmp}] // macro_metavar_expr or similar would let us use $(index())
                     ) $($value)*),
                 )*
-            },
+            }},
             _ => panic!("expected record"),
         }
     };
@@ -171,7 +173,7 @@ macro_rules! wait_action_screen {
         let action = action_screen!(@screen $($rest)*);
         let raw = wait_action_screen(action);
         action_screen!(@typedef $($rest)*);
-        let $name = action_screen!(@resolve (raw) $($rest)*);
+        let $name = action_screen!(@resolve (&raw) $($rest)*);
     };
 }
 
@@ -182,7 +184,7 @@ macro_rules! make_action_screen {
         pub fn wait $args -> action_screen!(@typename $($rest)*) {
             let screen = action_screen!(@screen $($rest)*);
             let encoded = wait_action_screen(screen);
-            action_screen!(@resolve (encoded) $($rest)*)
+            action_screen!(@resolve (&encoded) $($rest)*)
         }
     }
 }
@@ -193,7 +195,6 @@ fn game(input: &mut Input) -> Result<Output, Error> {
     let mut draw_pile = Pile::<Card>::new();
     draw_pile.add(input.deck.take_all());
     let turn = circle.first().expect("uh oh");
-
 
     let mut state = State {
         draw_pile: draw_pile,
@@ -302,27 +303,32 @@ fn draw_or_reshuffle(state: &mut State) -> Option<Card> {
     state.draw_pile.take_top()
 }
 
+#[typetag::serde(tag = "kind")]
 trait ActionScreenOption: std::fmt::Debug + Any {
     fn as_any(&self) -> &dyn Any;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
 enum ActionScreen {
-    Choose(Vec<(&'static str, ActionScreen)>),
-    Record(Vec<(&'static str, ActionScreen)>),
+    Choose(Vec<ActionScreen>),
+    Record(Vec<ActionScreen>),
     Enum(Vec<Box<dyn ActionScreenOption>>),
     Actor(Option<Vec<Player>>),
 }
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
 enum ActionScreenResult {
-    Choose((&'static str, Box<ActionScreenResult>)),
-    Record(HashMap<&'static str, ActionScreenResult>),
+    Choose((usize, Box<ActionScreenResult>)),
+    Record(Vec<ActionScreenResult>),
     Enum(Box<dyn ActionScreenOption>),
     Actor(Player),
 }
 // wonder if we can make it typesafe somehow like the js one
 // or better given that we can use numbers instead of string keys
 fn wait_action_screen(screen: ActionScreen) -> ActionScreenResult {
-    panic!("todo: wait_action_screen: {:?}", screen);
+    let serialized = serde_json::to_string(&screen).unwrap();
+    panic!("todo: wait_action_screen: {}", serialized);
 }
 
 #[derive(Debug)]
@@ -427,32 +433,35 @@ impl<T: Copy> Unordered<T> {
         copy
     }
 }
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 struct Player {
     id: u64,
 }
+#[typetag::serde]
 impl ActionScreenOption for Player {
     fn as_any(&self) -> &dyn Any { self }
 }
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 struct Card {
     suit: CardSuit,
     number: CardNumber,
 }
+#[typetag::serde]
 impl ActionScreenOption for Card {
     fn as_any(&self) -> &dyn Any { self }
 }
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 enum CardSuit {
     Hearts,
     Spades,
     Diamonds,
     Clubs,
 }
+#[typetag::serde]
 impl ActionScreenOption for CardSuit {
     fn as_any(&self) -> &dyn Any { self }
 }
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 enum CardNumber {
     A,
     _2,
