@@ -245,7 +245,7 @@ fn game(input: &mut Input) -> Result<Output, Error> {
             base_action::Action::Play(play) => {
                 play_card(&mut state, play.card);
             },
-            base_action::Action::Pass(_) => {
+            base_action::Action::Pass(_a) => {
                 if let Some(drawn_card) = draw_or_reshuffle(&mut state) {
                     wait_action_screen!(let action = @choose InnerAction {
                         Pass(@record InnerActionPass {
@@ -256,10 +256,10 @@ fn game(input: &mut Input) -> Result<Output, Error> {
                         }),
                     });
                     match action {
-                        InnerAction::Pass(_) => {
+                        InnerAction::Pass(_a) => {
                             state.hand(state.turn).add(vec![drawn_card]);
                         },
-                        InnerAction::Play(_) => {
+                        InnerAction::Play(_a) => {
                             play_card(&mut state, drawn_card);
                         },
                     };
