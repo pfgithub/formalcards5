@@ -37,6 +37,8 @@ fn main() {
     println!("Output: {:?}", output);
 }
 
+// supposedly it's possible to get completions in macros
+// https://github.com/rust-lang/rust-analyzer/issues/11058
 macro_rules! action_screen {
     // @choose
     (@typedef @choose $name:ident { $(
