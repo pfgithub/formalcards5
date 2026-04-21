@@ -1,8 +1,11 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 use std::{collections::HashMap, vec::Vec, any::Any};
 
 use rand::seq::SliceRandom;
 
 use serde::{Serialize, Deserialize};
+
+use eframe::egui;
 
 fn main() {
     println!("Hello, world!");
@@ -10,6 +13,7 @@ fn main() {
         deck: Pile::<Card>::new(),
         players: Ring::<Player>::new(),
     };
+    let mut id: u64 = 0;
     for suit in vec![CardSuit::Clubs, CardSuit::Spades, CardSuit::Hearts, CardSuit::Diamonds] {
         for number in vec![
             CardNumber::A,
@@ -26,7 +30,8 @@ fn main() {
             CardNumber::Q,
             CardNumber::K,
         ] {
-            input.deck.add(vec![Card {suit, number}]);
+            input.deck.add(vec![Card {suit, number, id}]);
+            id += 1;
         }
     }
     input.players.add(vec![
@@ -61,7 +66,10 @@ macro_rules! action_screen {
     )* }) => {
         ActionScreen::Choose(vec![
             $(
-                action_screen!(@screen $($value)*),
+                ActionScreenNamed {
+                    name: stringify!($key).to_string(),
+                    screen: action_screen!(@screen $($value)*),
+                },
             )*
         ])
     };
@@ -110,7 +118,10 @@ macro_rules! action_screen {
     )* }) => {
         ActionScreen::Record({
             vec![$(
-                action_screen!(@screen $($value)*),
+                ActionScreenNamed {
+                    name: stringify!($key).to_string(),
+                    screen: action_screen!(@screen $($value)*),
+                },
             )*
         ]})
     };
@@ -309,10 +320,16 @@ trait ActionScreenOption: std::fmt::Debug + Any {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct ActionScreenNamed {
+    name: String,
+    screen: ActionScreen,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 enum ActionScreen {
-    Choose(Vec<ActionScreen>),
-    Record(Vec<ActionScreen>),
+    Choose(Vec<ActionScreenNamed>),
+    Record(Vec<ActionScreenNamed>),
     Enum(Vec<Box<dyn ActionScreenOption>>),
     Actor(Option<Vec<Player>>),
 }
@@ -328,7 +345,24 @@ enum ActionScreenResult {
 // or better given that we can use numbers instead of string keys
 fn wait_action_screen(screen: ActionScreen) -> ActionScreenResult {
     let serialized = serde_json::to_string(&screen).unwrap();
-    panic!("todo: wait_action_screen: {}", serialized);
+
+    env_logger::init();
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "My egui App",
+        options,
+        Box::new(|cc| {
+            // This gives us image support:
+            egui_extras::install_image_loaders(&cc.egui_ctx);
+
+            Ok(Box::<MyApp>::new(MyApp::new(screen, serialized)))
+        }),
+    ).expect("todo err");
+
+    panic!("todo result");
 }
 
 #[derive(Debug)]
@@ -445,6 +479,7 @@ impl ActionScreenOption for Player {
 struct Card {
     suit: CardSuit,
     number: CardNumber,
+    id: u64,
 }
 #[typetag::serde]
 impl ActionScreenOption for Card {
@@ -476,4 +511,115 @@ enum CardNumber {
     J,
     Q,
     K,
+}
+
+#[derive(Debug)]
+enum ActionScreenResultProgress {
+    Choose((Option<usize>, Vec<ActionScreenResultProgress>)),
+    Record(Vec<ActionScreenResultProgress>),
+    Enum(Option<usize>),
+    Actor(()),
+}
+
+struct MyApp {
+    screen: ActionScreen,
+    result: ActionScreenResultProgress,
+    json: String,
+}
+
+impl MyApp {
+    fn new(screen: ActionScreen, json: String) -> Self {
+        let result = action_screen_result_init(&screen);
+        Self {
+            screen,
+            result,
+            json,
+        }
+    }
+}
+
+impl eframe::App for MyApp {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            ui.heading("My egui Application");
+            ui.horizontal(|ui| {
+                let name_label = ui.label("JSON: ");
+                ui.text_edit_singleline(&mut self.json)
+                    .labelled_by(name_label.id);
+            });
+
+            action_screen_ui(ui, &self.screen, &mut self.result);
+
+
+            // ui.add(egui::Slider::new(&mut self.age, 0..=120).text("age"));
+            // if ui.button("Increment").clicked() {
+            //     self.age += 1;
+            // }
+            // ui.label(format!("Hello '{}', age {}", self.name, self.age));
+        });
+    }
+}
+fn action_screen_result_init(screen: &ActionScreen) -> ActionScreenResultProgress {
+    match screen {
+        ActionScreen::Choose(choices) => {
+            ActionScreenResultProgress::Choose((None, choices.iter().map(|choice| {
+                action_screen_result_init(&choice.screen)
+            }).collect()))
+        },
+        ActionScreen::Record(entries) => {
+            ActionScreenResultProgress::Record(entries.iter().map(|entry| {
+                action_screen_result_init(&entry.screen)
+            }).collect())
+        },
+        ActionScreen::Enum(_) => {
+            ActionScreenResultProgress::Enum(None)
+        },
+        ActionScreen::Actor(_) => {
+            ActionScreenResultProgress::Actor(())
+        },
+    }
+}
+fn action_screen_ui(ui: &mut egui::Ui, screen: &ActionScreen, result: &mut ActionScreenResultProgress) {
+    match screen {
+        ActionScreen::Choose(choices) => {
+            let nt = match result {ActionScreenResultProgress::Choose(x) => x, _ => panic!("wrong")};
+            ui.horizontal(|ui| {
+                for (i, choice) in choices.iter().enumerate() {
+                    if ui.button(choice.name.clone()).clicked() {
+                        nt.0 = if nt.0 == Some(i) {None} else {Some(i)};
+                    }
+                }
+            });
+            if let Some(index) = nt.0 {
+                egui::CollapsingHeader::new(choices[index].name.clone())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        action_screen_ui(ui, &choices[index].screen, &mut nt.1[index])
+                    });
+            }
+        },
+        ActionScreen::Record(entries) => {
+            let nt = match result {ActionScreenResultProgress::Record(x) => x, _ => panic!("wrong")};
+            for (index, entry) in entries.iter().enumerate() {
+                egui::CollapsingHeader::new(entry.name.clone())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        action_screen_ui(ui, &entries[index].screen, &mut nt[index]);
+                    });
+            }
+        },
+        ActionScreen::Enum(options) => {
+            let nt = match result {ActionScreenResultProgress::Enum(x) => x, _ => panic!("wrong")};
+            ui.horizontal(|ui| {
+                for (index, entry) in options.iter().enumerate() {
+                    if ui.button(format!("{}", index)).clicked() {
+                        *nt = Some(index);
+                    }
+                }
+            });
+        },
+        ActionScreen::Actor(options) => {
+            ui.label(format!("TODO actor"));
+        },
+    }
 }
