@@ -15,7 +15,6 @@ fn main() {
         deck: Pile::<Card>::new(),
         players: Ring::<Player>::new(),
     };
-    let mut id: u64 = 0;
     for suit in vec![CardSuit::Clubs, CardSuit::Spades, CardSuit::Hearts, CardSuit::Diamonds] {
         for number in vec![
             CardNumber::A,
@@ -32,8 +31,7 @@ fn main() {
             CardNumber::Q,
             CardNumber::K,
         ] {
-            input.deck.add(vec![Card {suit, number, id}]);
-            id += 1;
+            input.deck.add(vec![Card {suit, number}]);
         }
     }
     input.players.add(vec![
@@ -397,6 +395,29 @@ impl State {
         self.hands.get_mut(&player).unwrap()
     }
 }
+#[derive(Debug, Serialize, Deserialize)]
+struct Views {
+    contents: HashMap<Player, GenericView>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+struct NamedView {
+    name: String,
+    contents: GenericView,
+}
+#[derive(Debug, Serialize, Deserialize)]
+enum GenericView {
+    Group(Vec<NamedView>),
+    Pile(Vec<Option<Card>>),
+    Ring(Vec<GenericView>),
+    Player(Player),
+}
+struct View {
+    player: Player,
+    hand_cards: Pile<Card>,
+    discard_cards: Pile<Card>,
+    draw_count: usize,
+    circle: Ring<Player>,
+}
 struct Input {
     deck: Pile<Card>,
     players: Ring<Player>,
@@ -486,7 +507,6 @@ impl ActionScreenOption for Player {
 struct Card {
     suit: CardSuit,
     number: CardNumber,
-    id: u64,
 }
 #[typetag::serde]
 impl ActionScreenOption for Card {
