@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
-use std::{collections::HashMap, vec::Vec, any::Any};
+use std::{any::Any, cell::RefCell, collections::HashMap, rc::Rc, vec::Vec};
 
 use rand::seq::SliceRandom;
 
@@ -8,6 +8,8 @@ use serde::{Serialize, Deserialize};
 use eframe::egui;
 
 fn main() {
+    env_logger::init();
+
     println!("Hello, world!");
     let mut input = Input {
         deck: Pile::<Card>::new(),
@@ -142,7 +144,7 @@ macro_rules! action_screen {
 
     // @actor
     (@typedef @actor $expr:expr) => {};
-    (@typename @actor $expr:expr) => {Player};
+    (@typename @actor $expr:expr) => {usize};
     (@screen @actor $expr:expr) => {
         ActionScreen::Actor($expr)
     };
@@ -155,13 +157,13 @@ macro_rules! action_screen {
 
     // @enum
     (@typedef @enum <$typeclass:path> $expr:expr) => {};
-    (@typename @enum <$typeclass:path> $expr:expr) => {$typeclass};
+    (@typename @enum <$typeclass:path> $expr:expr) => {usize};
     (@screen @enum <$typeclass:path> $expr:expr) => {
         ActionScreen::Enum(($expr).iter().map(|item| Box::new(*item) as Box<dyn ActionScreenOption>).collect())
     };
     (@resolve ($resolve:expr) @enum <$typeclass:path> $expr:expr) => {
         match $resolve {
-            ActionScreenResult::Enum(x) => *x.as_any().downcast_ref::<$typeclass>().expect("unreachable"),
+            ActionScreenResult::Enum(x) => *x, // *x.as_any().downcast_ref::<$typeclass>().expect("unreachable"),
             _ => panic!("expected enum"),
         }
     };
@@ -239,34 +241,34 @@ fn game(input: &mut Input) -> Result<Output, Error> {
     loop {
         mod base_action {
             make_action_screen!((turn: Player, playable: Vec<Card>) @choose Action {
-                Pass(@record ActionPass {
-                    _actor: (@actor Some(vec![turn])),
+                Draw(@record ActionDraw {
+                    _actor: (@actor vec![turn]),
                 }),
                 Play(@record ActionPlay {
-                    _actor: (@actor Some(vec![turn])),
+                    _actor: (@actor vec![turn]),
                     card: (@enum<Card> playable),
                 }),
             });
         }
         let hand_cont = state.hand(state.turn).contents.clone();
-        let allowed_cards = hand_cont.iter().filter_map(|card| {
+        let allowed_cards: Vec<Card> = hand_cont.iter().filter_map(|card| {
             let card: Card = *card;
             if can_play(&state, card) {Some(card)} else {None}           
         }).collect();
-        let action = base_action::wait(state.turn, allowed_cards);
+        let action = base_action::wait(state.turn, allowed_cards.clone());
 
         match action {
             base_action::Action::Play(play) => {
-                play_card(&mut state, play.card);
+                play_card(&mut state, allowed_cards[play.card]);
             },
-            base_action::Action::Pass(_a) => {
+            base_action::Action::Draw(_a) => {
                 if let Some(drawn_card) = draw_or_reshuffle(&mut state) {
                     wait_action_screen!(let action = @choose InnerAction {
                         Pass(@record InnerActionPass {
-                            _actor: (@actor Some(vec![state.turn])),
+                            _actor: (@actor vec![state.turn]),
                         }),
                         Play(@record InnerActionPlay {
-                            _actor: (@actor Some( if can_play(&state, drawn_card) {vec![state.turn]} else {vec![]})),
+                            _actor: (@actor if can_play(&state, drawn_card) {vec![state.turn]} else {vec![]}),
                         }),
                     });
                     match action {
@@ -289,11 +291,12 @@ fn play_card(state: &mut State, card: Card) -> () {
         // TODO: win game
     }
     if card.number == CardNumber::_8 {
+        let suit_vec: Vec<CardSuit> = vec![CardSuit::Diamonds, CardSuit::Spades, CardSuit::Hearts, CardSuit::Clubs];
         wait_action_screen!(let action = @record Action {
-            _actor: (@actor Some(vec![state.turn])),
-            suit: (@enum<CardSuit> vec![CardSuit::Diamonds, CardSuit::Spades, CardSuit::Hearts, CardSuit::Clubs]),
+            _actor: (@actor vec![state.turn]),
+            suit: (@enum<CardSuit> suit_vec),
         });
-        state.eight_suit = Some(action.suit);
+        state.eight_suit = Some(suit_vec[action.suit]);
     }
 }
 fn can_play(state: &State, card: Card) -> bool {
@@ -331,26 +334,27 @@ enum ActionScreen {
     Choose(Vec<ActionScreenNamed>),
     Record(Vec<ActionScreenNamed>),
     Enum(Vec<Box<dyn ActionScreenOption>>),
-    Actor(Option<Vec<Player>>),
+    Actor(Vec<Player>),
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 enum ActionScreenResult {
     Choose((usize, Box<ActionScreenResult>)),
     Record(Vec<ActionScreenResult>),
-    Enum(Box<dyn ActionScreenOption>),
-    Actor(Player),
+    Enum(usize),
+    Actor(usize),
 }
 // wonder if we can make it typesafe somehow like the js one
 // or better given that we can use numbers instead of string keys
 fn wait_action_screen(screen: ActionScreen) -> ActionScreenResult {
     let serialized = serde_json::to_string(&screen).unwrap();
+    let result: Rc<RefCell<Option<ActionScreenResult>>> = Rc::new(RefCell::new(None));
 
-    env_logger::init();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
         ..Default::default()
     };
+
     eframe::run_native(
         "My egui App",
         options,
@@ -358,11 +362,14 @@ fn wait_action_screen(screen: ActionScreen) -> ActionScreenResult {
             // This gives us image support:
             egui_extras::install_image_loaders(&cc.egui_ctx);
 
-            Ok(Box::<MyApp>::new(MyApp::new(screen, serialized)))
+            Ok(Box::<MyApp>::new(MyApp::new(screen, serialized.clone(), result.clone())))
         }),
     ).expect("todo err");
-
-    panic!("todo result");
+    
+    match result.take() {
+        Some(n) => n,
+        None => panic!("invalid"),
+    }
 }
 
 #[derive(Debug)]
@@ -518,22 +525,24 @@ enum ActionScreenResultProgress {
     Choose((Option<usize>, Vec<ActionScreenResultProgress>)),
     Record(Vec<ActionScreenResultProgress>),
     Enum(Option<usize>),
-    Actor(()),
+    Actor(Option<usize>), // this should be '()' because the screen will only be shown to the actor
 }
 
 struct MyApp {
     screen: ActionScreen,
     result: ActionScreenResultProgress,
     json: String,
+    outcome: Rc<RefCell<Option<ActionScreenResult>>>,
 }
 
 impl MyApp {
-    fn new(screen: ActionScreen, json: String) -> Self {
+    fn new(screen: ActionScreen, json: String, outcome: Rc<RefCell<Option<ActionScreenResult>>>) -> Self {
         let result = action_screen_result_init(&screen);
         Self {
             screen,
             result,
             json,
+            outcome,
         }
     }
 }
@@ -547,8 +556,20 @@ impl eframe::App for MyApp {
                 ui.text_edit_singleline(&mut self.json)
                     .labelled_by(name_label.id);
             });
+            ui.label(format!("source: {}", self.json));
 
             action_screen_ui(ui, &self.screen, &mut self.result);
+
+            if let Some(result) = action_screen_result(&self.screen, &self.result) {
+                ui.label(format!("result: {}", serde_json::to_string(&result).unwrap()));
+                // currently, this is {"kind":"Choose","value":[1,{"kind":"Record","value":[{"kind":"Actor","value":0},{"kind":"Enum","value":0}]}]}
+                // it could be [1,[0,0]] if we modify the serialization
+                // and then use the custom generated ActionResult from the macro for deserialization
+                *self.outcome.borrow_mut() = Some(result);
+            } else {
+                ui.label("errors remain");
+                *self.outcome.borrow_mut() = None;
+            }
 
 
             // ui.add(egui::Slider::new(&mut self.age, 0..=120).text("age"));
@@ -575,7 +596,7 @@ fn action_screen_result_init(screen: &ActionScreen) -> ActionScreenResultProgres
             ActionScreenResultProgress::Enum(None)
         },
         ActionScreen::Actor(_) => {
-            ActionScreenResultProgress::Actor(())
+            ActionScreenResultProgress::Actor(None)
         },
     }
 }
@@ -583,9 +604,9 @@ fn action_screen_ui(ui: &mut egui::Ui, screen: &ActionScreen, result: &mut Actio
     match screen {
         ActionScreen::Choose(choices) => {
             let nt = match result {ActionScreenResultProgress::Choose(x) => x, _ => panic!("wrong")};
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 for (i, choice) in choices.iter().enumerate() {
-                    if ui.button(choice.name.clone()).clicked() {
+                    if ui.add(egui::Button::selectable(nt.0 == Some(i), choice.name.clone())).clicked() {
                         nt.0 = if nt.0 == Some(i) {None} else {Some(i)};
                     }
                 }
@@ -596,7 +617,7 @@ fn action_screen_ui(ui: &mut egui::Ui, screen: &ActionScreen, result: &mut Actio
                     .show(ui, |ui| {
                         action_screen_ui(ui, &choices[index].screen, &mut nt.1[index])
                     });
-            }
+            };
         },
         ActionScreen::Record(entries) => {
             let nt = match result {ActionScreenResultProgress::Record(x) => x, _ => panic!("wrong")};
@@ -606,20 +627,59 @@ fn action_screen_ui(ui: &mut egui::Ui, screen: &ActionScreen, result: &mut Actio
                     .show(ui, |ui| {
                         action_screen_ui(ui, &entries[index].screen, &mut nt[index]);
                     });
-            }
+            };
         },
         ActionScreen::Enum(options) => {
             let nt = match result {ActionScreenResultProgress::Enum(x) => x, _ => panic!("wrong")};
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 for (index, entry) in options.iter().enumerate() {
-                    if ui.button(format!("{}", index)).clicked() {
-                        *nt = Some(index);
+                    if ui.add(egui::Button::selectable(*nt == Some(index), format!("{}", serde_json::to_string(entry).unwrap()))).clicked() {
+                        *nt = if *nt == Some(index) {None} else {Some(index)};
                     }
                 }
             });
         },
         ActionScreen::Actor(options) => {
-            ui.label(format!("TODO actor"));
+            let nt = match result {ActionScreenResultProgress::Actor(x) => x, _ => panic!("wrong")};
+            ui.horizontal_wrapped(|ui| {
+                for (index, entry) in options.iter().enumerate() {
+                    if ui.add(egui::Button::selectable(*nt == Some(index), format!("{}", entry.id))).clicked() {
+                        *nt = if *nt == Some(index) {None} else {Some(index)};
+                    }
+                }
+            });
+        },
+    }
+}
+
+fn action_screen_result(screen: &ActionScreen, result: &ActionScreenResultProgress) -> Option<ActionScreenResult> {
+    match screen {
+        ActionScreen::Choose(choices) => {
+            let nt = match result {ActionScreenResultProgress::Choose(x) => x, _ => panic!("wrong")};
+            if let Some(index) = nt.0 {
+                Some(ActionScreenResult::Choose((
+                    index,
+                    Box::<ActionScreenResult>::new(action_screen_result(&choices[index].screen, &nt.1[index])?),
+                )))
+            } else {
+                None
+            }
+        },
+        ActionScreen::Record(entries) => {
+            let nt = match result {ActionScreenResultProgress::Record(x) => x, _ => panic!("wrong")};
+            let mut result: Vec<ActionScreenResult> = Vec::with_capacity(entries.len());
+            for (i, item) in entries.iter().enumerate() {
+                result.push(action_screen_result(&item.screen, &nt[i])?);
+            }
+            Some(ActionScreenResult::Record(result))
+        },
+        ActionScreen::Enum(_) => {
+            let nt = match result {ActionScreenResultProgress::Enum(x) => x, _ => panic!("wrong")};
+            Some(ActionScreenResult::Enum((*nt)?))
+        },
+        ActionScreen::Actor(_) => {
+            let nt = match result {ActionScreenResultProgress::Actor(x) => x, _ => panic!("wrong")};
+            Some(ActionScreenResult::Actor((*nt)?))
         },
     }
 }

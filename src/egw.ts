@@ -63,7 +63,7 @@ export function* game(input: Input): GameGenerator<Output> {
     // start with left of the dealer
     while (true) {
         const action = yield* waitActionScreen(asc.choose({
-            slap: asc.record({actor: asc.actor()}),
+            slap: asc.record({actor: asc.actor(state.circle.items())}),
             play: asc.record({actor: asc.actor( state.circle.items().filter(p => !hand(state, p).empty()) )}),
         }), function* (action) {return action});
         if (action.key === "slap") {

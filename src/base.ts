@@ -154,7 +154,7 @@ export const asc = {
             value: {kind: "list", entries, min: filters?.min, exact: filters?.exact},
         };
     },
-    actor(of?: Player[]): ActionScreen<Player> {
+    actor(of: Player[]): ActionScreen<Player> {
         return {
             _hint: 0 as any,
             value: {kind: "actor", of},
