@@ -1,6 +1,12 @@
 goal
 - formalize every card game I know
 
+client-server:
+- when waitActionScreen:
+  - we send every player's views to the players along with the action screen (with an id)
+  - we wait until we get a response for that action screen we sent (same id)
+  - then we apply and continue
+
 once complete, where to go from here?
 - formalize views
 - translate to lean
