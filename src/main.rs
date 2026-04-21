@@ -397,7 +397,13 @@ impl State {
 }
 #[derive(Debug, Serialize, Deserialize)]
 struct Views {
-    contents: HashMap<Player, GenericView>,
+    contents: HashMap<Player, PlayerView>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+struct PlayerView {
+    view: GenericView,
+    screen: Option<ActionScreen>,
+    // do we need each player to have their own action screen? seems like it
 }
 #[derive(Debug, Serialize, Deserialize)]
 struct NamedView {
