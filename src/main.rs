@@ -142,11 +142,11 @@ macro_rules! action_screen {
     (@typedef @enum <$typeclass:path> $expr:expr) => {};
     (@typename @enum <$typeclass:path> $expr:expr) => {$typeclass};
     (@screen @enum <$typeclass:path> $expr:expr) => {
-        ActionScreen::Enum(($expr).iter().map(|item| Box::new(*item) as Box<dyn Any>).collect())
+        ActionScreen::Enum(($expr).iter().map(|item| Box::new(*item) as Box<dyn ActionScreenOption>).collect())
     };
     (@resolve ($resolve:expr) @enum <$typeclass:path> $expr:expr) => {
         match $resolve {
-            ActionScreenResult::Enum(x) => *x.downcast_ref::<$typeclass>().expect("unreachable"),
+            ActionScreenResult::Enum(x) => *x.as_any().downcast_ref::<$typeclass>().expect("unreachable"),
             _ => panic!("expected enum"),
         }
     };
@@ -300,19 +300,21 @@ fn draw_or_reshuffle(state: &mut State) -> Option<Card> {
     state.draw_pile.take_top()
 }
 
-trait ActionScreenOption {}
+trait ActionScreenOption: std::fmt::Debug + Any {
+    fn as_any(&self) -> &dyn Any;
+}
 
 #[derive(Debug)]
 enum ActionScreen {
     Choose(Vec<(&'static str, ActionScreen)>),
     Record(Vec<(&'static str, ActionScreen)>),
-    Enum(Vec<Box<dyn Any>>),
+    Enum(Vec<Box<dyn ActionScreenOption>>),
     Actor(Option<Vec<Player>>),
 }
 enum ActionScreenResult {
     Choose((&'static str, Box<ActionScreenResult>)),
     Record(HashMap<&'static str, ActionScreenResult>),
-    Enum(Box<dyn Any>),
+    Enum(Box<dyn ActionScreenOption>),
     Actor(Player),
 }
 // wonder if we can make it typesafe somehow like the js one
@@ -427,10 +429,16 @@ impl<T: Copy> Unordered<T> {
 struct Player {
     id: u64,
 }
+impl ActionScreenOption for Player {
+    fn as_any(&self) -> &dyn Any { self }
+}
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 struct Card {
     suit: CardSuit,
     number: CardNumber,
+}
+impl ActionScreenOption for Card {
+    fn as_any(&self) -> &dyn Any { self }
 }
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 enum CardSuit {
@@ -438,6 +446,9 @@ enum CardSuit {
     Spades,
     Diamonds,
     Clubs,
+}
+impl ActionScreenOption for CardSuit {
+    fn as_any(&self) -> &dyn Any { self }
 }
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 enum CardNumber {
