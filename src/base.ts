@@ -172,6 +172,13 @@ export function jsAllUnique<T>(items: T[]): boolean {
     return new Set(items).size === items.length;
 }
 
+/*
+it would be nice to support action screens that are an action
+ie 'move the card from this pile to that pile'
+instead of how they are right now
+
+like we make a list of acceptable actions a player can take
+*/
 export function* waitActionScreen<T, U>(screen: ActionScreen<T>, validate?: (res: NoInfer<T>) => GameGenerator<U | "fail">): GameGenerator<NoInfer<U>> {
     error("todo");
 }
