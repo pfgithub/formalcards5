@@ -1,3 +1,10 @@
+import { jsShuffle } from "./base";
+
+function main(table: Group, player_ring: Ring<Player>, deck: Pile<Card>) {
+
+    const draw_pile = deck.takeSub().shuffle().establish(table, "draw pile");
+
+}
 
 /*
 
@@ -86,10 +93,62 @@ let gid = 0;
 class Object {
     id: number = gid++; // randomized on shuffle
     owner?: Object;
-    contents: Object[] = [];
+    contents: Set<Object> = new Set();
+    protected own(item: Object): void {
+        item.owner?.disown(item);
+        this.contents.add(item);
+        item.owner = this;
+    }
+    disown(item: Object): void {
+        this.contents.delete(item);
+        item.owner = undefined;
+    }
+
+    establish(group: Group, name: string) {
+        group.add(name, this);
+    }
+}
+class Group extends Object {
+    named: Map<Object, string> = new Map();
+    add(name: string, item: Object) {
+        this.own(item);
+        this.named.set(item, name);
+    }
+    override disown(item: Object): void {
+        super.disown(item);
+        this.named.delete(item);
+    }
+}
+class Ring<T extends Object> extends Object {
+}
+class Pile<T extends Object> extends Object {
+    items: T[] = [];
+
+    shuffle() {
+        jsShuffle(this.items);
+        const ids = this.items.map(it => it.id);
+        jsShuffle(ids);
+        for (let i = 0; i < ids.length; i++) this.items[i]!.id = i;
+        return this; // eew
+    }
+    takeSub(start: number = 0, end: number = this.items.length): Pile<T> {
+        const res = new Pile<T>();
+        res.add(this.items.slice(start, end));
+        return res;
+    }
+    add(items: T[]) {
+        for (const it of items) {
+            this.own(it);
+            this.items.push(it);
+        }
+    }
+    override disown(item: Object): void {
+        super.disown(item);
+        this.items.splice(this.items.indexOf(item as T), 1);
+    }
 }
 
-class Player extends Object {}
+class Player extends Group {}
 
 class Card extends Object {
     viewAs(perspective: Player): {
