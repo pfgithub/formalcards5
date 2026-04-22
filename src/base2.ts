@@ -151,6 +151,8 @@ class Pile<T extends Object> extends Object {
 class Player extends Group {}
 
 class Card extends Object {
+    facing: "sky" | "table" | Player = "table";
+
     viewAs(perspective: Player): {
         suit: CardSuit,
         number: CardNumber,
